@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --paper: #f4ecd8;
+  --paper-dk: #e8dcc0;
+  --ink: #1a1614;
+  --stamp: #b91c1c;
+  --gain: #1f6b3a;
+  --loss: #b91c1c;
+}
+
+html,
+body,
+#root {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+body {
+  margin: 0;
+  font-family: "EB Garamond", Georgia, serif;
+  font-feature-settings: "liga" 1, "kern" 1;
+  -webkit-font-smoothing: antialiased;
+  background-image:
+    radial-gradient(rgba(0, 0, 0, 0.025) 1px, transparent 1px),
+    radial-gradient(rgba(0, 0, 0, 0.015) 1px, transparent 1px);
+  background-size: 3px 3px, 7px 7px;
+  background-position: 0 0, 1px 2px;
+  overflow-x: hidden;
+}
+
+.recharts-cartesian-axis-tick text {
+  fill: var(--ink);
+}
+
+@media (max-width: 768px) {
+  button {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
