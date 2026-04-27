@@ -349,7 +349,10 @@ function DottedRow({
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THE DOSSIER
+type BarFilter = "ALL" | "PLO" | "NL";
+
 function Dossier() {
+  const [barFilter, setBarFilter] = useState<BarFilter>("ALL");
   return (
     <Section className="py-8 sm:py-12">
       <div className="flex items-end justify-between gap-4 mb-4 flex-wrap">
@@ -389,13 +392,16 @@ function Dossier() {
           className="md:col-span-2 border-2 p-3 sm:p-5"
           style={{ borderColor: INK, background: CARD_BG }}
         >
-          <div
-            className="text-[10px] uppercase tracking-[0.3em] opacity-70 pb-3"
-            style={{ fontFamily: "'DM Mono', monospace" }}
-          >
-            Per-Game Result · {topGain.Player}
+          <div className="flex items-center justify-between flex-wrap gap-2 pb-3">
+            <div
+              className="text-[10px] uppercase tracking-[0.3em] opacity-70"
+              style={{ fontFamily: "'DM Mono', monospace" }}
+            >
+              Per-Game Result · {topGain.Player}
+            </div>
+            <FormatToggle value={barFilter} onChange={setBarFilter} />
           </div>
-          <DossierBarChart />
+          <DossierBarChart filter={barFilter} />
         </div>
 
         <aside
@@ -502,13 +508,59 @@ function DossierLineChart() {
   );
 }
 
-function DossierBarChart() {
+function FormatToggle({
+  value,
+  onChange,
+}: {
+  value: BarFilter;
+  onChange: (v: BarFilter) => void;
+}) {
+  const opts: BarFilter[] = ["ALL", "PLO", "NL"];
+  return (
+    <div
+      className="inline-flex border"
+      style={{
+        borderColor: INK,
+        fontFamily: "'DM Mono', monospace",
+      }}
+    >
+      {opts.map((o) => {
+        const selected = value === o;
+        return (
+          <button
+            key={o}
+            onClick={() => onChange(o)}
+            aria-pressed={selected}
+            className="px-3 py-1.5 text-[11px] uppercase tracking-[0.2em] transition-colors"
+            style={{
+              background: selected ? INK : "transparent",
+              color: selected ? PAPER : INK,
+              minHeight: 32,
+              borderLeft: o === "ALL" ? "none" : `1px solid ${INK}`,
+            }}
+          >
+            {o}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function DossierBarChart({ filter }: { filter: BarFilter }) {
   const isMobile = useMediaQuery("(max-width: 767px)");
+  const data = useMemo(
+    () =>
+      topGainBarData.filter((d) =>
+        filter === "ALL" ? true : d.type === filter,
+      ),
+    [filter],
+  );
   return (
     <div style={{ width: "100%", height: isMobile ? 240 : 280 }}>
       <ResponsiveContainer>
         <BarChart
-          data={topGainBarData}
+          data={data}
           margin={{ top: 8, right: 8, left: 0, bottom: 4 }}
         >
           <CartesianGrid stroke={INK + "15"} strokeDasharray="2 4" />
@@ -537,7 +589,7 @@ function DossierBarChart() {
           <ReferenceLine y={0} stroke={INK} />
           <Tooltip content={<BarTooltip />} cursor={{ fill: INK + "08" }} />
           <Bar dataKey="net" radius={0}>
-            {topGainBarData.map((d, i) => (
+            {data.map((d, i) => (
               <Cell key={i} fill={d.net >= 0 ? GAIN : LOSS} />
             ))}
           </Bar>
