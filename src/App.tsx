@@ -84,22 +84,23 @@ const topGainBarData = topGainGames.map((g) => ({
   type: g.game_type,
 }));
 
-const fieldTrack = [...sortedByNet.slice(0, 6), ...losers.slice(0, 3)];
+const fieldTrack = [...sortedByNet.slice(0, 5), ...losers.slice(0, 5)];
 const fieldTrackMobile = [
   topGain,
   sortedByNet[1],
   sortedByNet[2],
   losers[0],
+  losers[1],
 ];
 
 function colorForFieldPlayer(name: string): string {
   if (name === topGain.Player) return GAIN;
   const winnerIdx = sortedByNet.findIndex((p) => p.Player === name);
-  if (winnerIdx >= 1 && winnerIdx <= 5) {
+  if (winnerIdx >= 1 && winnerIdx <= 4) {
     return FIELD_TOP_PALETTE[winnerIdx];
   }
   const loserIdx = losers.findIndex((p) => p.Player === name);
-  if (loserIdx >= 0 && loserIdx < 3) {
+  if (loserIdx >= 0 && loserIdx < FIELD_LOSER_PALETTE.length) {
     return FIELD_LOSER_PALETTE[loserIdx];
   }
   return INK;
@@ -575,9 +576,9 @@ function TheField() {
         className="italic max-w-3xl text-base sm:text-lg leading-[1.5] mb-6"
         style={{ fontFamily: "'EB Garamond', serif" }}
       >
-        Cumulative net for the league's top {isMobile ? "three" : "six"}{" "}
-        earners and {isMobile ? "deepest loss" : "three deepest losses"}, drawn
-        night by night.
+        Cumulative net for the league's top {isMobile ? "three" : "five"}{" "}
+        earners and {isMobile ? "two deepest losses" : "five deepest losses"},
+        drawn night by night.
       </p>
 
       <div

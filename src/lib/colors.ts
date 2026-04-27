@@ -16,5 +16,11 @@ export const FIELD_TOP_PALETTE: Record<number, string> = {
   5: "#7a4e2d", // sienna
 };
 
-// Deepest losses palette (3 entries, lightest → darkest).
-export const FIELD_LOSER_PALETTE = ["#888", "#a0a0a0", "#b8b8b8"];
+// Deepest losses palette (5 entries, deepest → shallowest).
+export const FIELD_LOSER_PALETTE = [
+  "#5a5a5a",
+  "#787878",
+  "#909090",
+  "#a8a8a8",
+  "#c0c0c0",
+];
