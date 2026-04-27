@@ -1506,6 +1506,13 @@ export default function App() {
     cardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [selected]);
 
+  useEffect(() => {
+    fetch("/api/log" + window.location.search, {
+      method: "POST",
+      keepalive: true,
+    }).catch(() => {});
+  }, []);
+
   const handleSelect = (name: string) => {
     userInteracted.current = true;
     setSelected(name);
