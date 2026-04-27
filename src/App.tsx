@@ -12,6 +12,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { Analytics } from "@vercel/analytics/react";
 import { players, games, cumulative } from "./data";
 import type { Player } from "./data";
 import {
@@ -1539,6 +1540,7 @@ export default function App() {
       </Section>
       <Highlights />
       <Methodology />
+      <Analytics />
     </main>
   );
 }
