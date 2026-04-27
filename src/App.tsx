@@ -35,6 +35,11 @@ import {
   fmtPct1,
 } from "./lib/format";
 import { useMediaQuery } from "./lib/useMediaQuery";
+import {
+  buildFingerprint,
+  getVisitorId,
+  postLog,
+} from "./lib/fingerprint";
 import { ColumnRule, Eyebrow, Section, Stamp, Stat } from "./components/primitives";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1507,15 +1512,60 @@ export default function App() {
   }, [selected]);
 
   useEffect(() => {
-    fetch("/api/log" + window.location.search, {
-      method: "POST",
-      keepalive: true,
-    }).catch(() => {});
+    let unmounted = false;
+    const start = performance.now();
+    (async () => {
+      const fp = await buildFingerprint();
+      if (unmounted) return;
+      postLog({ kind: "visit", ...fp });
+    })();
+
+    let maxScroll = 0;
+    const onScroll = () => {
+      const total =
+        (document.documentElement.scrollHeight || 1) - window.innerHeight;
+      const pct = total > 0 ? Math.round((window.scrollY / total) * 100) : 0;
+      if (pct > maxScroll) maxScroll = pct;
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+
+    const sendExit = () => {
+      const { vid } = getVisitorId();
+      postLog({
+        kind: "event",
+        vid,
+        event: "exit",
+        payload: {
+          dwellMs: Math.round(performance.now() - start),
+          maxScrollPct: maxScroll,
+          url: window.location.href,
+        },
+      });
+    };
+    const onVis = () => {
+      if (document.visibilityState === "hidden") sendExit();
+    };
+    window.addEventListener("pagehide", sendExit);
+    document.addEventListener("visibilitychange", onVis);
+
+    return () => {
+      unmounted = true;
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("pagehide", sendExit);
+      document.removeEventListener("visibilitychange", onVis);
+    };
   }, []);
 
   const handleSelect = (name: string) => {
     userInteracted.current = true;
     setSelected(name);
+    const { vid } = getVisitorId();
+    postLog({
+      kind: "event",
+      vid,
+      event: "select_player",
+      payload: { player: name },
+    });
   };
 
   return (

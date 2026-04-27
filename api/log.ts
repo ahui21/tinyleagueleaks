@@ -8,32 +8,21 @@ const redis = new Redis({
     process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN!,
 });
 
-const KEY = "visits";
-const MAX_ENTRIES = 5000;
+const VISITS_KEY = "visits";
+const EVENTS_KEY = "events";
+const MAX_VISITS = 10000;
+const MAX_EVENTS = 50000;
 
-interface Geo {
-  country?: string;
-  region?: string;
-  city?: string;
-  timezone?: string;
-  lat?: string;
-  lon?: string;
-  asn?: string;
-}
-
-interface Entry {
-  ts: string;
-  ip: string;
-  geo: Geo;
-  ua: string;
-  ref: string;
-  lang: string;
-  query: string;
-  path: string;
+function dumpHeaders(req: Request): Record<string, string> {
+  const out: Record<string, string> = {};
+  req.headers.forEach((v, k) => {
+    out[k] = v;
+  });
+  return out;
 }
 
 export default async function handler(req: Request): Promise<Response> {
-  if (req.method !== "POST" && req.method !== "GET") {
+  if (req.method !== "POST") {
     return new Response(null, { status: 405 });
   }
 
@@ -43,28 +32,54 @@ export default async function handler(req: Request): Promise<Response> {
   const ipHeader = h.get("x-forwarded-for") ?? "";
   const ip = ipHeader.split(",")[0]?.trim() || "—";
 
-  const entry: Entry = {
+  let body: any = null;
+  try {
+    const text = await req.text();
+    if (text) body = JSON.parse(text);
+  } catch {
+    body = null;
+  }
+
+  const kind: "visit" | "event" =
+    body?.kind === "event" ? "event" : "visit";
+
+  const entry = {
+    kind,
     ts: new Date().toISOString(),
     ip,
     geo: {
       country: h.get("x-vercel-ip-country") ?? undefined,
-      region: h.get("x-vercel-ip-country-region") ?? undefined,
+      countryRegion: h.get("x-vercel-ip-country-region") ?? undefined,
       city: decodeURIComponent(h.get("x-vercel-ip-city") ?? "") || undefined,
       timezone: h.get("x-vercel-ip-timezone") ?? undefined,
       lat: h.get("x-vercel-ip-latitude") ?? undefined,
       lon: h.get("x-vercel-ip-longitude") ?? undefined,
       asn: h.get("x-vercel-ip-as-number") ?? undefined,
+      postalCode: h.get("x-vercel-ip-postal-code") ?? undefined,
+      continent: h.get("x-vercel-ip-continent") ?? undefined,
     },
-    ua: h.get("user-agent") ?? "",
-    ref: h.get("referer") ?? "",
-    lang: h.get("accept-language") ?? "",
-    query: url.search,
-    path: url.searchParams.get("path") ?? "/",
+    server: {
+      ua: h.get("user-agent") ?? "",
+      ref: h.get("referer") ?? "",
+      lang: h.get("accept-language") ?? "",
+      acceptEncoding: h.get("accept-encoding") ?? "",
+      secChUa: h.get("sec-ch-ua") ?? "",
+      secChUaPlatform: h.get("sec-ch-ua-platform") ?? "",
+      secChUaMobile: h.get("sec-ch-ua-mobile") ?? "",
+      secFetchSite: h.get("sec-fetch-site") ?? "",
+      dnt: h.get("dnt") ?? "",
+      query: url.search,
+      headers: dumpHeaders(req),
+    },
+    client: body ?? null,
   };
 
+  const targetKey = kind === "event" ? EVENTS_KEY : VISITS_KEY;
+  const cap = kind === "event" ? MAX_EVENTS : MAX_VISITS;
+
   try {
-    await redis.lpush(KEY, JSON.stringify(entry));
-    await redis.ltrim(KEY, 0, MAX_ENTRIES - 1);
+    await redis.lpush(targetKey, JSON.stringify(entry));
+    await redis.ltrim(targetKey, 0, cap - 1);
   } catch (err) {
     return new Response(`log_failed: ${(err as Error).message}`, {
       status: 500,
