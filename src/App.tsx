@@ -41,12 +41,7 @@ import {
   postLog,
 } from "./lib/fingerprint";
 import { ColumnRule, Eyebrow, Section, Stamp, Stat } from "./components/primitives";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Replace with the league's actual Google Sheet URL before deploy.
-const SHEET_URL =
-  "https://docs.google.com/spreadsheets/d/12EnTwgG6owH2ltR8e19vAlzPvmaWtC3N7KZvHdpH0cw/edit?usp=sharing";
-// ─────────────────────────────────────────────────────────────────────────────
+import { SHEET_URL } from "./lib/sheet-url";
 
 const sortedByNet = [...players].sort((a, b) => b.TotalNet - a.TotalNet);
 const winners = sortedByNet.filter((p) => p.TotalNet > 0);
@@ -183,7 +178,7 @@ function BarTooltip({ active, payload }: any) {
 // MASTHEAD
 function Masthead() {
   return (
-    <Section className="pt-6 sm:pt-10 pb-2">
+    <Section id="masthead" className="pt-6 sm:pt-10 pb-2">
       <div
         className="flex items-center justify-between text-[10px] sm:text-xs uppercase tracking-[0.25em] sm:tracking-[0.3em] pb-3 border-b"
         style={{ fontFamily: "'DM Mono', monospace", borderColor: INK }}
@@ -241,7 +236,7 @@ function Masthead() {
 // LEAD STORY
 function LeadStory() {
   return (
-    <Section className="py-8 sm:py-12">
+    <Section id="lead" className="py-8 sm:py-12">
       <div className="grid grid-cols-1 md:grid-cols-12 gap-8 md:gap-10">
         <div className="md:col-span-8">
           <Eyebrow red>▸ Lead Story · Investigative</Eyebrow>
@@ -358,9 +353,19 @@ function DottedRow({
 type BarFilter = "ALL" | "PLO" | "NL";
 
 function Dossier() {
-  const [barFilter, setBarFilter] = useState<BarFilter>("ALL");
+  const [barFilter, setBarFilterRaw] = useState<BarFilter>("ALL");
+  const setBarFilter = (v: BarFilter) => {
+    setBarFilterRaw(v);
+    const { vid } = getVisitorId();
+    postLog({
+      kind: "event",
+      vid,
+      event: "format_toggle",
+      payload: { value: v },
+    });
+  };
   return (
-    <Section className="py-8 sm:py-12">
+    <Section id="dossier" className="py-8 sm:py-12">
       <div className="flex items-end justify-between gap-4 mb-4 flex-wrap">
         <div>
           <Eyebrow red>Exhibit A</Eyebrow>
@@ -612,7 +617,7 @@ function TheField() {
   const tracked = isMobile ? fieldTrackMobile : fieldTrack;
 
   return (
-    <Section className="py-8 sm:py-12">
+    <Section id="field" className="py-8 sm:py-12">
       <Eyebrow red>The Field</Eyebrow>
       <h3
         className="font-black italic mt-2 mb-3"
@@ -1005,7 +1010,7 @@ function PersonnelFile({
   const winnerColor = player.TotalNet >= 0 ? GAIN : LOSS;
 
   return (
-    <Section className="py-8 sm:py-12">
+    <Section id="personnel" className="py-8 sm:py-12">
       <div className="flex items-end justify-between gap-4 mb-4 flex-wrap">
         <div>
           <Eyebrow red>Personnel File</Eyebrow>
@@ -1254,7 +1259,7 @@ function PlayerTooltip({
 // HIGHLIGHTS / LOWLIGHTS
 function Highlights() {
   return (
-    <Section className="py-8 sm:py-12">
+    <Section id="highlights" className="py-8 sm:py-12">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-10">
         <RankedList
           eyebrow="The Highlights"
@@ -1342,9 +1347,14 @@ function RankedList({
 // ─────────────────────────────────────────────────────────────────────────────
 // METHODOLOGY FOOTER
 function Methodology() {
+  const [sourceHref, setSourceHref] = useState<string>(SHEET_URL);
+  useEffect(() => {
+    const { vid } = getVisitorId();
+    setSourceHref(`/api/source?vid=${encodeURIComponent(vid)}`);
+  }, []);
   const sheetIsPlaceholder = SHEET_URL.includes("REPLACE_WITH_YOUR_SHEET_ID");
   return (
-    <Section className="pt-8 sm:pt-12 pb-12">
+    <Section id="methodology" className="pt-8 sm:pt-12 pb-12">
       <div
         className="border-t-8 border-double mb-8 sm:mb-12"
         style={{ borderColor: INK }}
@@ -1416,14 +1426,14 @@ function Methodology() {
             word for it; do the math yourself.
           </p>
           <a
-            href={SHEET_URL}
+            href={sourceHref}
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => {
               if (sheetIsPlaceholder) {
                 e.preventDefault();
                 alert(
-                  "Set SHEET_URL in src/App.tsx to the Tiny League ledger before deploying.",
+                  "Set SHEET_URL in src/lib/sheet-url.ts (and api/source.ts) to the Tiny League ledger before deploying.",
                 );
               }
             }}
@@ -1505,6 +1515,8 @@ export default function App() {
   const [selected, setSelected] = useState<string>(topGain.Player);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const userInteracted = useRef(false);
+  const firstPlayerLogged = useRef(false);
+  const sectionDwellRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
     if (!userInteracted.current) return;
@@ -1521,16 +1533,83 @@ export default function App() {
     })();
 
     let maxScroll = 0;
+    const milestones = [25, 50, 75, 100];
+    const reachedMilestones = new Set<number>();
     const onScroll = () => {
       const total =
         (document.documentElement.scrollHeight || 1) - window.innerHeight;
       const pct = total > 0 ? Math.round((window.scrollY / total) * 100) : 0;
       if (pct > maxScroll) maxScroll = pct;
+      for (const m of milestones) {
+        if (pct >= m && !reachedMilestones.has(m)) {
+          reachedMilestones.add(m);
+          const { vid } = getVisitorId();
+          postLog({
+            kind: "event",
+            vid,
+            event: "scroll_milestone",
+            payload: {
+              pct: m,
+              elapsedMs: Math.round(performance.now() - start),
+            },
+          });
+        }
+      }
     };
     window.addEventListener("scroll", onScroll, { passive: true });
 
-    const sendExit = () => {
+    // Section dwell — track time each <section id="..."> spends in viewport.
+    const sectionStarts: Record<string, number> = {};
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const id = (entry.target as HTMLElement).id;
+          if (!id) continue;
+          if (entry.isIntersecting) {
+            sectionStarts[id] = performance.now();
+          } else if (sectionStarts[id] !== undefined) {
+            const dur = performance.now() - sectionStarts[id];
+            sectionDwellRef.current[id] =
+              (sectionDwellRef.current[id] ?? 0) + dur;
+            delete sectionStarts[id];
+          }
+        }
+      },
+      { threshold: 0.4 },
+    );
+    document.querySelectorAll("section[id]").forEach((el) => observer.observe(el));
+
+    // Copy capture — log what they highlight (truncated).
+    const onCopy = () => {
+      const text = window.getSelection?.()?.toString() ?? "";
+      if (!text.trim()) return;
       const { vid } = getVisitorId();
+      postLog({
+        kind: "event",
+        vid,
+        event: "copy",
+        payload: { text: text.slice(0, 240) },
+      });
+    };
+    document.addEventListener("copy", onCopy);
+
+    let exitSent = false;
+    const sendExit = () => {
+      if (exitSent) return;
+      exitSent = true;
+
+      // Flush remaining section-dwell counters.
+      for (const id of Object.keys(sectionStarts)) {
+        sectionDwellRef.current[id] =
+          (sectionDwellRef.current[id] ?? 0) +
+          (performance.now() - sectionStarts[id]);
+      }
+
+      const { vid } = getVisitorId();
+      const dwellByMs: Record<string, number> = {};
+      for (const [k, v] of Object.entries(sectionDwellRef.current)) {
+        dwellByMs[k] = Math.round(v);
+      }
       postLog({
         kind: "event",
         vid,
@@ -1538,6 +1617,7 @@ export default function App() {
         payload: {
           dwellMs: Math.round(performance.now() - start),
           maxScrollPct: maxScroll,
+          sections: dwellByMs,
           url: window.location.href,
         },
       });
@@ -1553,6 +1633,8 @@ export default function App() {
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("pagehide", sendExit);
       document.removeEventListener("visibilitychange", onVis);
+      document.removeEventListener("copy", onCopy);
+      observer.disconnect();
     };
   }, []);
 
@@ -1560,6 +1642,18 @@ export default function App() {
     userInteracted.current = true;
     setSelected(name);
     const { vid } = getVisitorId();
+    if (!firstPlayerLogged.current) {
+      firstPlayerLogged.current = true;
+      postLog({
+        kind: "event",
+        vid,
+        event: "first_player",
+        payload: {
+          player: name,
+          elapsedMs: Math.round(performance.now()),
+        },
+      });
+    }
     postLog({
       kind: "event",
       vid,

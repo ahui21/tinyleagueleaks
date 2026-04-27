@@ -103,8 +103,18 @@ export default async function handler(req: Request): Promise<Response> {
   const format = url.searchParams.get("format") ?? "html";
   const targetKey = tab === "events" ? "events" : "visits";
 
-  const raw = await redis.lrange<string | object>(targetKey, 0, limit - 1);
+  const [raw, eventsRaw] = await Promise.all([
+    redis.lrange<string | object>(targetKey, 0, limit - 1),
+    // Always pull events too — needed to enrich the visits view with
+    // first-player / source-click summaries.
+    tab === "visits"
+      ? redis.lrange<string | object>("events", 0, 5000)
+      : Promise.resolve([] as (string | object)[]),
+  ]);
   const entries = raw.map((e: any) =>
+    typeof e === "string" ? JSON.parse(e) : e,
+  );
+  const eventEntries = eventsRaw.map((e: any) =>
     typeof e === "string" ? JSON.parse(e) : e,
   );
 
@@ -122,6 +132,113 @@ export default async function handler(req: Request): Promise<Response> {
       if (!byVid.has(vid)) byVid.set(vid, []);
       byVid.get(vid)!.push(e);
     }
+  }
+
+  const eventsByVid = new Map<string, any[]>();
+  for (const e of eventEntries) {
+    const vid = e.client?.vid;
+    if (!vid) continue;
+    if (!eventsByVid.has(vid)) eventsByVid.set(vid, []);
+    eventsByVid.get(vid)!.push(e);
+  }
+
+  function fmtMs(ms: number | undefined): string {
+    if (!ms || !Number.isFinite(ms)) return "";
+    if (ms < 1000) return `${ms}ms`;
+    if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+    const min = Math.floor(ms / 60_000);
+    const sec = Math.round((ms % 60_000) / 1000);
+    return `${min}m ${sec}s`;
+  }
+
+  function summarizeBehavior(vid: string): string {
+    const events = (eventsByVid.get(vid) ?? []).slice().sort((a, b) =>
+      a.ts.localeCompare(b.ts),
+    );
+    if (!events.length) return `<span class="dim">—</span>`;
+
+    const firstPlayerEv = events.find(
+      (e) => e.client?.event === "first_player",
+    );
+    const selects = events.filter((e) => e.client?.event === "select_player");
+    const sourceClicks = events.filter(
+      (e) => e.client?.event === "source_click",
+    );
+    const formatToggles = events.filter(
+      (e) => e.client?.event === "format_toggle",
+    );
+    const copies = events.filter((e) => e.client?.event === "copy");
+    const milestones = events.filter(
+      (e) => e.client?.event === "scroll_milestone",
+    );
+    const exits = events.filter((e) => e.client?.event === "exit");
+    const lastExit = exits[exits.length - 1];
+
+    // Count unique players, in order of first occurrence
+    const seen = new Set<string>();
+    const playerOrder: string[] = [];
+    for (const ev of selects) {
+      const p = ev.client?.payload?.player;
+      if (p && !seen.has(p)) {
+        seen.add(p);
+        playerOrder.push(p);
+      }
+    }
+
+    // Sum section dwell across all exit events
+    const sectionTotals: Record<string, number> = {};
+    for (const ev of exits) {
+      const sects = ev.client?.payload?.sections;
+      if (!sects) continue;
+      for (const [k, v] of Object.entries(sects)) {
+        sectionTotals[k] = (sectionTotals[k] ?? 0) + (v as number);
+      }
+    }
+    const topSections = Object.entries(sectionTotals)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([k, v]) => `${k} ${fmtMs(v)}`);
+
+    const maxScroll = Math.max(
+      0,
+      ...exits.map((e) => Number(e.client?.payload?.maxScrollPct ?? 0)),
+      ...milestones.map((e) => Number(e.client?.payload?.pct ?? 0)),
+    );
+
+    const totalDwell = exits.reduce(
+      (s, e) => s + (Number(e.client?.payload?.dwellMs ?? 0) || 0),
+      0,
+    );
+
+    const lines: string[] = [];
+    if (firstPlayerEv) {
+      lines.push(
+        `<b>1st tap:</b> ${escapeHtml(firstPlayerEv.client?.payload?.player)} <span class="dim">(${fmtMs(firstPlayerEv.client?.payload?.elapsedMs)})</span>`,
+      );
+    }
+    if (playerOrder.length) {
+      lines.push(
+        `<b>Order:</b> ${escapeHtml(playerOrder.slice(0, 6).join(" → "))}${playerOrder.length > 6 ? "…" : ""}`,
+      );
+    }
+    if (sourceClicks.length) {
+      const sc = sourceClicks[sourceClicks.length - 1];
+      lines.push(
+        `<b style="color:#b91c1c">Source clicked:</b> ${escapeHtml(fmtTs(sc.ts))}`,
+      );
+    }
+    if (topSections.length) {
+      lines.push(
+        `<span class="dim">Sections:</span> ${escapeHtml(topSections.join(", "))}`,
+      );
+    }
+    const bits: string[] = [];
+    if (totalDwell) bits.push(`dwell ${fmtMs(totalDwell)}`);
+    if (maxScroll) bits.push(`scroll ${maxScroll}%`);
+    if (formatToggles.length) bits.push(`toggles ${formatToggles.length}`);
+    if (copies.length) bits.push(`copies ${copies.length}`);
+    if (bits.length) lines.push(`<span class="dim">${bits.join(" · ")}</span>`);
+    return lines.join("<br>");
   }
 
   const visitorRows = Array.from(byVid.entries())
@@ -144,11 +261,9 @@ export default async function handler(req: Request): Promise<Response> {
           <td>${escapeHtml(c.tz ?? "")}<br><span class="dim">${escapeHtml(c.primaryLang ?? "")}</span></td>
           <td>${escapeHtml(deviceLine(latest))}<br><span class="dim">${escapeHtml(uaModel(latest))}</span></td>
           <td class="dim">${escapeHtml(gpuLine(latest))}</td>
-          <td class="dim">${escapeHtml(netLine(latest))}</td>
-          <td class="mono ua">${escapeHtml(shortUA(latest.server?.ua ?? c.ua ?? ""))}</td>
+          <td class="behavior">${summarizeBehavior(vid)}</td>
           <td class="mono">${escapeHtml(latest.server?.ref ?? c.referrer ?? "")}</td>
           <td class="mono">${escapeHtml(lastQuery)}</td>
-          <td>${list.length}</td>
         </tr>
       `;
     })
@@ -183,6 +298,7 @@ export default async function handler(req: Request): Promise<Response> {
     td.t { white-space: nowrap; }
     td.mono { font-family: ui-monospace, monospace; }
     td.ua { max-width: 280px; word-break: break-word; }
+    td.behavior { max-width: 360px; line-height: 1.5; font-size: 11px; }
     tr:hover { background: rgba(0,0,0,0.04); }
     .dim { opacity: 0.6; }
     .legend { margin-top: 16px; font-size: 11px; opacity: 0.7; }
@@ -207,16 +323,16 @@ export default async function handler(req: Request): Promise<Response> {
           <th>TZ / Lang</th>
           <th>Device</th>
           <th>GPU</th>
-          <th>Net</th>
-          <th>User-Agent</th>
+          <th>Behavior</th>
           <th>Referer</th>
           <th>Last Query</th>
-          <th>Pings</th>
         </tr></thead>
-        <tbody>${visitorRows || `<tr><td colspan="13" class="dim" style="padding:24px">No visits yet.</td></tr>`}</tbody>
+        <tbody>${visitorRows || `<tr><td colspan="11" class="dim" style="padding:24px">No visits yet.</td></tr>`}</tbody>
       </table>
       <div class="legend">
-        Visitor ID is a sticky <code>localStorage</code> token per browser profile. Cleared if they wipe site data, use private browsing, or switch browsers — cross-reference with IP + GPU + screen size to merge.
+        Visitor ID is a sticky <code>localStorage</code> token per browser profile.
+        <b>1st tap</b> = first player they searched (people search themselves first).
+        <b>Source clicked</b> = they followed the "View Source Data" button — cross-reference the timestamp with your Google Sheets activity panel to identify the anonymous viewer.
       </div>
     `;
   } else {
