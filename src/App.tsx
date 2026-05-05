@@ -17,7 +17,6 @@ import { players, games, cumulative } from "./data";
 import type { Player } from "./data";
 import {
   CARD_BG,
-  FIELD_LOSER_PALETTE,
   FIELD_TOP_PALETTE,
   GAIN,
   INK,
@@ -40,7 +39,15 @@ import {
   getVisitorId,
   postLog,
 } from "./lib/fingerprint";
-import { ColumnRule, Eyebrow, Section, Stamp, Stat } from "./components/primitives";
+import {
+  ColumnRule,
+  Eyebrow,
+  RedactedName,
+  RedactionNote,
+  Section,
+  Stamp,
+  Stat,
+} from "./components/primitives";
 import { SHEET_URL } from "./lib/sheet-url";
 
 const sortedByNet = [...players].sort((a, b) => b.TotalNet - a.TotalNet);
@@ -54,6 +61,21 @@ const totalWinnings = winners.reduce((s, p) => s + p.TotalNet, 0);
 const topGainShareOfPot = topGain.TotalNet / totalWinnings;
 const runnerUp = sortedByNet[1];
 const topVsRunner = topGain.TotalNet / runnerUp.TotalNet;
+
+// Window derived from the ledger so copy stays in sync with data/raw.csv.
+const allDates = games.map((g) => g.date);
+const firstDate = allDates.reduce((a, b) => (a < b ? a : b));
+const lastDate = allDates.reduce((a, b) => (a > b ? a : b));
+const nightCount = new Set(allDates).size;
+const gameCount = new Set(games.map((g) => g.game_num)).size;
+
+// Andrew's net at the close of Issue I (4/25) — referenced in the lead story.
+const PRIOR_ISSUE_DATE = "2026-04-25";
+const priorIssueRow = cumulative.find((r) => r.date === PRIOR_ISSUE_DATE);
+const topGainPriorNet = priorIssueRow
+  ? Number(priorIssueRow[topGain.Player] ?? 0)
+  : 0;
+const topGainSinceLastIssue = topGain.TotalNet - topGainPriorNet;
 
 const topGainGames = games
   .filter((g) => g.player === topGain.Player)
@@ -85,24 +107,22 @@ const topGainBarData = topGainGames.map((g) => ({
   type: g.game_type,
 }));
 
-const fieldTrack = [...sortedByNet.slice(0, 5), ...losers.slice(0, 5)];
-const fieldTrackMobile = [...sortedByNet.slice(0, 5), ...losers.slice(0, 3)];
+const fieldTrack = winners.slice(0, 10);
+const fieldTrackMobile = winners.slice(0, 8);
 
 function colorForFieldPlayer(name: string): string {
   if (name === topGain.Player) return GAIN;
   const winnerIdx = sortedByNet.findIndex((p) => p.Player === name);
-  if (winnerIdx >= 1 && winnerIdx <= 4) {
+  if (winnerIdx >= 1 && winnerIdx <= 9) {
     return FIELD_TOP_PALETTE[winnerIdx];
-  }
-  const loserIdx = losers.findIndex((p) => p.Player === name);
-  if (loserIdx >= 0 && loserIdx < FIELD_LOSER_PALETTE.length) {
-    return FIELD_LOSER_PALETTE[loserIdx];
   }
   return INK;
 }
 
 const topSingleGames = [...games].sort((a, b) => b.net - a.net).slice(0, 10);
-const bottomSingleGames = [...games].sort((a, b) => a.net - b.net).slice(0, 10);
+const topGainTopTenCount = topSingleGames.filter(
+  (g) => g.player === topGain.Player,
+).length;
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -183,11 +203,11 @@ function Masthead() {
         className="flex items-center justify-between text-[10px] sm:text-xs uppercase tracking-[0.25em] sm:tracking-[0.3em] pb-3 border-b"
         style={{ fontFamily: "'DM Mono', monospace", borderColor: INK }}
       >
-        <span>Vol. I · No. 1</span>
+        <span>Vol. I · No. 2</span>
         <span className="hidden md:inline italic opacity-80 normal-case tracking-normal">
           — A Periodical of Felt Affairs —
         </span>
-        <span>Apr. 26, 2026</span>
+        <span>May 5, 2026</span>
       </div>
 
       <h1
@@ -209,7 +229,7 @@ function Masthead() {
         <span className="hidden sm:inline"> · </span>
         <span className="block sm:inline">Receipts Inside</span>
         <span className="hidden sm:inline"> · </span>
-        <span className="block sm:inline">Names Will Not Be Redacted</span>
+        <span className="block sm:inline">Names Redacted by Request</span>
       </div>
 
       <div
@@ -220,8 +240,7 @@ function Masthead() {
           “The cards saw everything.”
         </span>
         <span className="uppercase tracking-[0.2em] text-right">
-          {games.length > 0 ? "36 games · 13 nights · " : ""}
-          {players.length} players
+          {gameCount} games · {nightCount} nights · {players.length} players
         </span>
       </div>
       <div
@@ -239,7 +258,7 @@ function LeadStory() {
     <Section id="lead" className="py-8 sm:py-12">
       <div className="grid grid-cols-1 md:grid-cols-12 gap-8 md:gap-10">
         <div className="md:col-span-8">
-          <Eyebrow red>▸ Lead Story · Investigative</Eyebrow>
+          <Eyebrow red>▸ Lead Story · The Rampage Continues</Eyebrow>
           <h2
             className="font-black italic mt-3 leading-[1.05]"
             style={{
@@ -248,11 +267,11 @@ function LeadStory() {
               letterSpacing: "-0.01em",
             }}
           >
-            One Player Has Won{" "}
+            {topGain.Player} Shows No Signs of Slowing. He Is Now Up{" "}
             <span style={{ color: GAIN, fontStyle: "italic" }}>
               {fmtMoney(topGain.TotalNet)}
-            </span>{" "}
-            Across 13 Nights of Cards.
+            </span>
+            .
           </h2>
           <p
             className="mt-6 text-[17px] sm:text-lg md:text-xl leading-[1.55]"
@@ -264,14 +283,19 @@ function LeadStory() {
             >
               Tiny League —
             </span>
-            Between {fmtDateLong("2026-04-13")} and {fmtDateLong("2026-04-25")},{" "}
-            {players.length} players sat down at the Tiny League's tables. When
-            the chips were counted on the final night, a single name had taken
-            home <em>{fmtPct1(topGainShareOfPot)}</em> of all money won
+            Two and a half weeks ago this paper documented {topGain.Player}{" "}
+            sitting on a then-stunning <em>{fmtMoney(topGainPriorNet)}</em>{" "}
+            after thirteen nights of cards — a run we suggested might be due
+            for regression. The {gameCount - 36} games since suggest otherwise.
+            Between {fmtDateLong(firstDate)} and {fmtDateLong(lastDate)},{" "}
+            {topGain.Player} has banked another{" "}
+            <strong>{fmtMoney(topGainSinceLastIssue)}</strong> — extending his
+            net to <strong>{fmtMoney(topGain.TotalNet)}</strong>, or{" "}
+            <em>{fmtPct1(topGainShareOfPot)}</em> of every dollar won
             league-wide. The figure is{" "}
-            <strong>{topVsRunner.toFixed(1)}×</strong> the next-highest winner.
-            The data, sourced from the league's own ledger, is presented below
-            in full.
+            <strong>{topVsRunner.toFixed(1)}×</strong> the next-highest earner.
+            The ledger, sourced once again from the league's own books, is
+            reproduced in full below.
           </p>
         </div>
 
@@ -386,8 +410,9 @@ function Dossier() {
         className="italic max-w-3xl text-base sm:text-lg leading-[1.5] mb-6"
         style={{ fontFamily: "'EB Garamond', serif" }}
       >
-        Cumulative net winnings of <strong>{topGain.Player}</strong> over the
-        13-night observation window. Each marker is one game-night. Trend line
+        Cumulative net winnings of <strong>{topGain.Player}</strong> over the{" "}
+        {nightCount}-night observation window. Each marker is one game-night.
+        The trend line, despite a brief two-day pause at the start of May,
         ascends almost without interruption.
       </p>
 
@@ -434,8 +459,9 @@ function Dossier() {
             className="mb-2 leading-[1.5]"
             style={{ fontFamily: "'EB Garamond', serif" }}
           >
-            The four largest single-game wins of the entire league belong to{" "}
-            <strong>{topGain.Player}</strong>:
+            <strong>{topGainTopTenCount}</strong> of the league's ten largest
+            single-game wins belong to <strong>{topGain.Player}</strong>. His
+            four biggest are listed below:
           </p>
           <ul className="space-y-2 mb-4">
             {topGainBigWins.map((g) => (
@@ -633,8 +659,8 @@ function TheField() {
         className="italic max-w-3xl text-base sm:text-lg leading-[1.5] mb-6"
         style={{ fontFamily: "'EB Garamond', serif" }}
       >
-        Cumulative net for the league's top five earners and{" "}
-        {isMobile ? "three" : "five"} deepest losses, drawn night by night.
+        Cumulative net for the league's top {isMobile ? "eight" : "ten"}{" "}
+        earners, drawn night by night.
       </p>
 
       <div
@@ -755,6 +781,7 @@ function Standings({
           selected={selected}
           onSelect={onSelect}
           tone="loss"
+          redactNames
         />
       </div>
     </Section>
@@ -770,6 +797,7 @@ function StandingsList({
   onSelect,
   tone,
   showTopBadge,
+  redactNames,
 }: {
   eyebrow: string;
   eyebrowRed?: boolean;
@@ -779,13 +807,14 @@ function StandingsList({
   onSelect: (p: string) => void;
   tone: "gain" | "loss";
   showTopBadge?: boolean;
+  redactNames?: boolean;
 }) {
   const accent = tone === "gain" ? GAIN : LOSS;
   return (
     <div>
       <Eyebrow red={!!eyebrowRed}>{eyebrow}</Eyebrow>
       <h3
-        className="font-black italic mt-2 mb-4"
+        className="font-black italic mt-2 mb-2"
         style={{
           fontFamily: "'Playfair Display', serif",
           fontSize: "clamp(26px, 4vw, 40px)",
@@ -794,6 +823,8 @@ function StandingsList({
       >
         {title}
       </h3>
+
+      {redactNames ? <RedactionNote /> : <div className="mb-4" />}
 
       {/* Desktop table */}
       <div
@@ -863,7 +894,7 @@ function StandingsList({
                     className="p-2 border-b border-dotted font-bold"
                     style={{ borderColor: INK + "30" }}
                   >
-                    {p.Player}
+                    {redactNames ? <RedactedName name={p.Player} /> : p.Player}
                     {showTopBadge && i === 0 ? (
                       <span
                         className="ml-2 text-[10px] tracking-widest px-1.5 py-0.5"
@@ -931,7 +962,7 @@ function StandingsList({
                     {i + 1}
                   </span>
                   <span className="font-bold text-base flex-1">
-                    {p.Player}
+                    {redactNames ? <RedactedName name={p.Player} /> : p.Player}
                   </span>
                   {showTopBadge && i === 0 ? (
                     <span
@@ -1008,6 +1039,7 @@ function PersonnelFile({
   }, [player.Player]);
 
   const winnerColor = player.TotalNet >= 0 ? GAIN : LOSS;
+  const isRedacted = player.TotalNet < 0;
 
   return (
     <Section id="personnel" className="py-8 sm:py-12">
@@ -1042,12 +1074,11 @@ function PersonnelFile({
           className="text-[10px] uppercase tracking-[0.3em] opacity-70 pb-3"
           style={{ fontFamily: "'DM Mono', monospace" }}
         >
-          Roster · {players.length} players
+          Roster · {winners.length} in the black
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {sortedByNet.map((p) => {
+          {winners.map((p) => {
             const isSelected = p.Player === selected;
-            const tone = p.TotalNet >= 0 ? GAIN : LOSS;
             return (
               <button
                 key={p.Player}
@@ -1064,7 +1095,49 @@ function PersonnelFile({
                 <span className="mr-1">{p.Player}</span>
                 <span
                   style={{
-                    color: isSelected ? PAPER : tone,
+                    color: isSelected ? PAPER : GAIN,
+                    opacity: isSelected ? 0.85 : 1,
+                  }}
+                >
+                  {fmtMoneyShort(p.TotalNet)}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div
+        className="border-2 p-4 mb-6"
+        style={{ borderColor: INK, background: PAPER_DK }}
+      >
+        <div
+          className="text-[10px] uppercase tracking-[0.3em] opacity-70 pb-2"
+          style={{ fontFamily: "'DM Mono', monospace" }}
+        >
+          The Settlements · {losers.length} in the red
+        </div>
+        <RedactionNote />
+        <div className="flex flex-wrap gap-1.5">
+          {losers.map((p) => {
+            const isSelected = p.Player === selected;
+            return (
+              <button
+                key={p.Player}
+                onClick={() => onSelect(p.Player)}
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs border whitespace-nowrap"
+                style={{
+                  fontFamily: "'DM Mono', monospace",
+                  borderColor: isSelected ? INK : INK + "40",
+                  background: isSelected ? INK : "transparent",
+                  color: isSelected ? PAPER : INK,
+                  minHeight: 32,
+                }}
+              >
+                <RedactedName name={p.Player} />
+                <span
+                  style={{
+                    color: isSelected ? PAPER : LOSS,
                     opacity: isSelected ? 0.85 : 1,
                   }}
                 >
@@ -1094,7 +1167,7 @@ function PersonnelFile({
                 letterSpacing: "-0.01em",
               }}
             >
-              {player.Player}
+              {isRedacted ? <RedactedName name={player.Player} /> : player.Player}
             </h4>
             <div
               className="text-[10px] uppercase tracking-[0.3em] opacity-70 mt-2"
@@ -1156,9 +1229,13 @@ function PersonnelFile({
             className="text-[10px] uppercase tracking-[0.3em] opacity-70 pb-3"
             style={{ fontFamily: "'DM Mono', monospace" }}
           >
-            Cumulative Net · Apr 13 → Apr 25
+            Cumulative Net · {fmtDate(firstDate)} → {fmtDate(lastDate)}
           </div>
-          <PersonnelChart data={cum} color={winnerColor} name={player.Player} />
+          <PersonnelChart
+            data={cum}
+            color={winnerColor}
+            name={isRedacted ? "[redacted]" : player.Player}
+          />
         </div>
       </div>
     </Section>
@@ -1260,19 +1337,13 @@ function PlayerTooltip({
 function Highlights() {
   return (
     <Section id="highlights" className="py-8 sm:py-12">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-10">
+      <div className="max-w-3xl mx-auto">
         <RankedList
           eyebrow="The Highlights"
           eyebrowRed
           title="Biggest Single-Game Wins"
           rows={topSingleGames}
           tone={GAIN}
-        />
-        <RankedList
-          eyebrow="The Lowlights"
-          title="Biggest Single-Game Losses"
-          rows={bottomSingleGames}
-          tone={LOSS}
         />
       </div>
     </Section>
@@ -1379,12 +1450,13 @@ function Methodology() {
         >
           <p>
             Every figure on this page traces back to the league's shared
-            ledger. <strong>13 consecutive nights</strong> of play between{" "}
-            <strong>April 13 and April 25, 2026</strong>,{" "}
-            <strong>36 games</strong> in total — a mix of Pot-Limit Omaha and
-            No-Limit Hold'em — across <strong>{players.length} participants</strong>.
-            Every dollar shown is net of buy-ins; rake, if any, is absorbed
-            within the per-game settlements.
+            ledger. <strong>{nightCount} consecutive nights</strong> of play
+            between <strong>{fmtDateLong(firstDate)}</strong> and{" "}
+            <strong>{fmtDateLong(lastDate)}, 2026</strong>,{" "}
+            <strong>{gameCount} games</strong> in total — a mix of Pot-Limit
+            Omaha and No-Limit Hold'em — across{" "}
+            <strong>{players.length} participants</strong>. Every dollar shown
+            is net of buy-ins.
           </p>
           <p>
             “Net” means cash in minus cash out. “Win Rate” means the share of
@@ -1393,10 +1465,10 @@ function Methodology() {
             specializes where.
           </p>
           <p className="italic opacity-80">
-            A 13-night window is a small sample. Variance over a stretch this
-            short can produce extraordinary results in either direction. The
-            ledger is reproduced here in full, without commentary, so readers
-            may draw their own conclusions.
+            A {nightCount}-night window remains a modest sample. Variance over
+            a stretch this short can produce extraordinary results in either
+            direction. The ledger is reproduced here in full, without
+            commentary, so readers may draw their own conclusions.
           </p>
         </div>
 
@@ -1469,8 +1541,8 @@ function Methodology() {
       </div>
 
       <div className="grid grid-cols-3 gap-3 sm:gap-5 mt-10">
-        <StatTile big="13" label="Nights" />
-        <StatTile big="36" label="Games" />
+        <StatTile big={nightCount} label="Nights" />
+        <StatTile big={gameCount} label="Games" />
         <StatTile big={players.length} label="Players" />
       </div>
 

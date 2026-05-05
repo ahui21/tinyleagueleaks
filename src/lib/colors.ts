@@ -6,21 +6,15 @@ export const GAIN = "#1f6b3a";
 export const LOSS = "#b91c1c";
 export const CARD_BG = "#fffaf0";
 
-// Earth-tone palette assigned to top-6 winners (excluding the top earner who is GAIN).
+// Earth-tone palette assigned to ranks 2-10 winners (top earner is GAIN).
 export const FIELD_TOP_PALETTE: Record<number, string> = {
-  // index 0 (top earner) is rendered in GAIN; others fall back to this map.
   1: "#d4a017", // gold
   2: "#5a7a3a", // olive
   3: "#8b6914", // umber
   4: "#3b5998", // navy
   5: "#7a4e2d", // sienna
+  6: "#9c5a2d", // terracotta
+  7: "#4d6373", // slate
+  8: "#6b4226", // coffee
+  9: "#5e3f6b", // plum
 };
-
-// Deepest losses palette (5 entries, deepest → shallowest).
-export const FIELD_LOSER_PALETTE = [
-  "#5a5a5a",
-  "#787878",
-  "#909090",
-  "#a8a8a8",
-  "#c0c0c0",
-];

@@ -112,3 +112,44 @@ export function Eyebrow({
     </div>
   );
 }
+
+// Newspaper-style black redaction bar, sized to roughly match the original
+// name length so neighboring numbers stay column-aligned. The actual name is
+// never written to the DOM.
+export function RedactedName({ name }: { name: string }) {
+  const ch = Math.max(3, Math.min(name.length, 12));
+  return (
+    <span
+      aria-label="name redacted"
+      title="redacted"
+      className="inline-block select-none align-middle"
+      style={{
+        // currentColor lets the bar invert against dark "selected" pills.
+        background: "currentColor",
+        height: "0.85em",
+        width: `${ch * 0.55}em`,
+        verticalAlign: "-0.05em",
+      }}
+    />
+  );
+}
+
+// Small inline editor's note that sits under a redacted block heading.
+export function RedactionNote() {
+  return (
+    <p
+      className="italic text-xs sm:text-sm opacity-80 mb-3 leading-[1.5]"
+      style={{ fontFamily: "'EB Garamond', serif" }}
+    >
+      Names redacted by popular demand. For your own figures, email{" "}
+      <a
+        href="mailto:tinyleagueleaks@gmail.com"
+        className="font-bold underline"
+        style={{ color: STAMP_RED }}
+      >
+        tinyleagueleaks@gmail.com
+      </a>
+      .
+    </p>
+  );
+}
